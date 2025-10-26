@@ -1,0 +1,12 @@
+data/
+exp/
+raw/
+.github/
+.vscode/
+__pycache__/
+auto_restart.log
+log.txt
+test.py
+vec_visualizer.py
+*.pdf
+*.tex
