@@ -258,8 +258,10 @@ def trim(points_n):
 
     redundant_point = detect_redundant_point_by_edge(points_n)
     points_n = remove_redundant_point(points_n, redundant_point)
-    
-    return points_n.detach().clone().requires_grad_(True)
+    points_n = points_n.detach().clone().requires_grad_(True)
+    points_init = points_n.detach().clone()
+
+    return points_n, points_init
 
 def remove_points_based_on_loss(points_n, raster):
     render = pydiffvg.RenderFunction.apply

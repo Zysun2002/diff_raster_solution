@@ -193,22 +193,10 @@ def run(raster_path, exp_path):
 
     sh.contour_img = contour_img; sh.contour = contour; sh.raster = raster
     sh.udf = udf
-    ipdb.set_trace()
 
-
-    points_n, _ = add_hard(points_n, exp_path / "init_after_adding.png")
-    
+    points_n, _ = add_hard(points_n, exp_path / "init_after_adding.png")    
     points_n, points_init = remove_hard(points_n, exp_path / "init_vec.png")
     
-    # redundant_edge = detect_redundant_point_by_edge(points_n)
-    # points_n = remove_redundant_point(points_n, redundant_edge)
-    # points_n = points_n.detach().clone().requires_grad_(True)
-    # points_init = points_n.detach().clone()
-    # points_to_png(points_n, exp_path / "init_vec.png")
-
-    # points_to_svg(points_n, exp_path / "init.svg")
-
-    # warmup pass
     points_n = train(points_init, points_n, exp_path / "warmup", sh.warmup_sh)
     # points_loss = remove_points_based_on_loss(points_n, raster)
     # points_to_png(points_n.detach().cpu().numpy(), exp_path / "remove_points_loss_diff.png", point_values=np.array(points_loss))
@@ -226,8 +214,7 @@ def run(raster_path, exp_path):
     # ipdb.set_trace()
 
     # first pass
-    points_n = trim(points_n)
-    points_init = points_n.detach().clone()
+    points_n, points_init = trim(points_n)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
 
     
@@ -239,8 +226,7 @@ def run(raster_path, exp_path):
     # ipdb.set_trace()
 
     # second pass
-    points_n = trim(points_n)
-    points_init = points_n.detach().clone()
+    points_n, points_init = trim(points_n)
     points_n = train(points_init, points_n, exp_path / "pass_2", sh.pass_sh)
 
     # points_n = trim(points_n)
