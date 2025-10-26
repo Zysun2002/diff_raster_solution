@@ -23,16 +23,22 @@ def add_hard(points_n, vis_path=None):
 
     if vis_path is not None:
         points_to_png(points_n, vis_path, background_image=sh.contour_img)
+    
     return points_n, points_init
 
 def remove_hard(points_n, vis_path=None):
-    redundant_edge = detect_redundant_point_by_edge(points_n)
+    redundant_edge = detect_redundant_point_by_length(points_n)
     points_n = remove_redundant_point(points_n, redundant_edge)
+
+    redundant_point = detect_redundant_point_by_angle(points_n)
+    points_n = remove_redundant_point(points_n, redundant_point)
+
     points_n = points_n.detach().clone().requires_grad_(True)
     points_init = points_n.detach().clone()
 
     if vis_path is not None:
         points_to_png(points_n, vis_path, background_image=sh.contour_img)
+    
     return points_n, points_init
 
 def is_need_more_points(point_n, contour_img):
@@ -148,36 +154,6 @@ def insert_closest_band_point(points_n, outlier_edge, contour):
     return torch.stack(new_points, dim=0), added_point_indices
 
 
-def detect_redundant_point_by_edge(points):
-    # if two edges are sufficiently close, consider one redundant
-    redundant_point = []
-
-    points = torch.cat([points, points[:2]], dim=0)
-    cos = torch.cosine_similarity(points[1:-1] - points[:-2], points[1:-1] - points[2:], dim=1)
-    threshold = -0.99  # cos(8 degrees) ~ 0.98
-    # ipdb.set_trace()
-    for i in range(len(cos)):
-        if cos[i] < threshold:
-            redundant_point.append((i + 1) % len(points))
-
-    return redundant_point
-
-def remove_redundant_edge(points_n, redundant_edges):
-    N = points_n.shape[0]
-    redundant_edges = torch.as_tensor(redundant_edges, device=points_n.device, dtype=torch.long)
-    
-    remove_indices = torch.tensor([(i+1)%N for i in range(N) if i in redundant_edges and (i+1)%N in redundant_edges])
-
-    # Create mask for all points to keep
-    if remove_indices.numel() == 0:
-        return points_n
-    keep_mask = torch.ones(N, dtype=torch.bool, device=points_n.device)
-    keep_mask[remove_indices] = False
-
-    # Apply mask
-    new_points = points_n[keep_mask]
-
-    return new_points
 
 def remove_redundant_point(points_n, redundant_points):
     N = points_n.shape[0]
@@ -195,6 +171,22 @@ def remove_redundant_point(points_n, redundant_points):
     new_points = points_n[keep_mask]
 
     return new_points
+
+
+def detect_redundant_point_by_angle(points):
+    # if two edges are sufficiently close, consider one redundant
+    redundant_point = []
+
+    points = torch.cat([points, points[:2]], dim=0)
+    cos = torch.cosine_similarity(points[1:-1] - points[:-2], points[1:-1] - points[2:], dim=1)
+    threshold = -0.99  # cos(8 degrees) ~ 0.98
+    # ipdb.set_trace()
+    for i in range(len(cos)):
+        if cos[i] < threshold:
+            redundant_point.append((i + 1) % len(points))
+
+    return redundant_point
+
 
 
 def find_midpoint_on_contour(contour_mask, start, end):
@@ -239,7 +231,7 @@ def find_midpoint_on_contour(contour_mask, start, end):
     return path[mid_idx]
 
 
-def detect_redundant_point(points):
+def detect_redundant_point_by_length(points):
     # if two points are sufficiently close, consider one redundant
     redundant_point = []
     threshold = 2.0 / sh.w  # threshold in normalized coords
@@ -251,17 +243,18 @@ def detect_redundant_point(points):
             redundant_point.append((i + 1) % N)
     return redundant_point
 
-def trim(points_n):
-    # previous trim
-    redundant_point = detect_redundant_point(points_n)
-    points_n = remove_redundant_point(points_n, redundant_point)
+# def trim(points_n):
+#     # previous trim
+#     redundant_point = detect_redundant_point_by_length(points_n)
+#     points_n = remove_redundant_point(points_n, redundant_point)
 
-    redundant_point = detect_redundant_point_by_edge(points_n)
-    points_n = remove_redundant_point(points_n, redundant_point)
-    points_n = points_n.detach().clone().requires_grad_(True)
-    points_init = points_n.detach().clone()
+#     redundant_point = detect_redundant_point_by_angle(points_n)
+#     points_n = remove_redundant_point(points_n, redundant_point)
 
-    return points_n, points_init
+#     points_n = points_n.detach().clone().requires_grad_(True)
+#     points_init = points_n.detach().clone()
+
+#     return points_n, points_init
 
 def remove_points_based_on_loss(points_n, raster):
     render = pydiffvg.RenderFunction.apply
