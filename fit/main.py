@@ -24,7 +24,7 @@ from .files import render_fitting_res, visualize_video, create_exp
 from .log import logger, Logger, visualize_grad
 from .segmentation import sample_from_boundary
 from .loss import SmoothnessLoss, BandLoss, ImageLoss, StraightnessLoss
-from .trim import trim, detect_outlier_edge, insert_closest_band_point, detect_redundant_point_by_edge, remove_redundant_point,\
+from .trim import add_hard, remove_hard, trim, detect_outlier_edge, insert_closest_band_point, detect_redundant_point_by_edge, remove_redundant_point,\
     detect_redundant_point, remove_redundant_point, remove_points_based_on_loss, add_points_based_on_optimization
 from .monitor import Monitor
 
@@ -92,7 +92,6 @@ def train(points_init, points_n, train_path, train_sh):
 
             img_loss = ImageLoss()(img, sh.raster)
             # img_loss = 2 * (img - raster).pow(2).mean() 
-            print(img_loss.item())
             # smooth_loss = SmoothnessLoss()(points_n, points_init=points_init, is_close=True)
             
             smooth_loss = SmoothnessLoss(train_sh.smooth_loss)(points_n, points_init=points_init, is_close=True)
@@ -194,29 +193,28 @@ def run(raster_path, exp_path):
 
     sh.contour_img = contour_img; sh.contour = contour; sh.raster = raster
     sh.udf = udf
-
-    outlier_edge = detect_outlier_edge(points_n, contour)
-    points_n, midpoint_indices = insert_closest_band_point(points_n, outlier_edge, contour)
-    points_n = points_n.detach().clone().requires_grad_(True)
-    points_to_png(points_n, exp_path / "init_after_adding.png", background_image=contour_img)
+    ipdb.set_trace()
 
 
-    redundant_edge = detect_redundant_point_by_edge(points_n)
-    points_n = remove_redundant_point(points_n, redundant_edge)
-    points_n = points_n.detach().clone().requires_grad_(True)
-    points_init = points_n.detach().clone()
-    # points_to_png(points_n, exp_path / "init_vec.png", background_image=contour_img)
+    points_n, _ = add_hard(points_n, exp_path / "init_after_adding.png")
     
-    points_to_png(points_n, exp_path / "init_vec.png")
+    points_n, points_init = remove_hard(points_n, exp_path / "init_vec.png")
+    
+    # redundant_edge = detect_redundant_point_by_edge(points_n)
+    # points_n = remove_redundant_point(points_n, redundant_edge)
+    # points_n = points_n.detach().clone().requires_grad_(True)
+    # points_init = points_n.detach().clone()
+    # points_to_png(points_n, exp_path / "init_vec.png")
 
     # points_to_svg(points_n, exp_path / "init.svg")
 
-    # init 
-    # points_resampled = resample_points(points_n)
+    # warmup pass
     points_n = train(points_init, points_n, exp_path / "warmup", sh.warmup_sh)
-    points_loss = remove_points_based_on_loss(points_n, raster)
-    points_to_png(points_n.detach().cpu().numpy(), exp_path / "remove_points_loss_diff.png", point_values=np.array(points_loss))
-    
+    # points_loss = remove_points_based_on_loss(points_n, raster)
+    # points_to_png(points_n.detach().cpu().numpy(), exp_path / "remove_points_loss_diff.png", point_values=np.array(points_loss))
+    ipdb.set_trace()
+
+
     # ipdb.set_trace()
     # points_loss = remove_points_based_on_loss(points_n, raster)
     # points_n = add_points_based_on_optimization(points_n, sh.add_points_sh)
@@ -227,6 +225,7 @@ def run(raster_path, exp_path):
     # )
     # ipdb.set_trace()
 
+    # first pass
     points_n = trim(points_n)
     points_init = points_n.detach().clone()
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
@@ -238,6 +237,8 @@ def run(raster_path, exp_path):
     #     point_values=np.array(points_loss)  # This will color points from blue to red
     # )
     # ipdb.set_trace()
+
+    # second pass
     points_n = trim(points_n)
     points_init = points_n.detach().clone()
     points_n = train(points_init, points_n, exp_path / "pass_2", sh.pass_sh)
@@ -245,7 +246,7 @@ def run(raster_path, exp_path):
     # points_n = trim(points_n)
     
     # points_n = add_points_based_on_optimization(points_n, sh.add_points_sh)
-    points_to_png(points_n, exp_path / "vec_bg.png", background_image=contour_img, midpoint_indices=midpoint_indices)
+    points_to_png(points_n, exp_path / "vec_bg.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
     points_to_png(points_n, exp_path / "vec.png")
 
 
@@ -275,15 +276,15 @@ def batch(fold, resolution):
         
         if not (subfold / "aa_16.png").exists(): continue
 
-        sub_exp_path = sh.exp_path / subfold.name
-        sub_exp_path.mkdir(parents=True, exist_ok=True)
+        sh.exp_sub_path = sh.exp_path / subfold.name
+        sh.exp_sub_path.mkdir(parents=True, exist_ok=True)
 
         raster_name = f"aa_{resolution}.png"
-        shutil.copy(subfold / raster_name, sub_exp_path)
+        shutil.copy(subfold / raster_name, sh.exp_sub_path)
 
         raster_path = subfold / f"aa_{resolution}.png"
 
-        run(raster_path, sub_exp_path)
+        run(raster_path, sh.exp_sub_path)
 
         metadata["resolution"] = sh.w
 
@@ -295,7 +296,7 @@ def batch(fold, resolution):
 
 if __name__ == "__main__":
 
-    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\castle")
+    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\axe")
 
     exp_path = sub_path / "test_2"
 

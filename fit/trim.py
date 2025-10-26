@@ -15,6 +15,26 @@ from pathlib import Path
 import random
 from .utils import points_to_png
 
+def add_hard(points_n, vis_path=None):
+    outlier_edge = detect_outlier_edge(points_n, sh.contour)
+    points_n, sh.midpoint_indices = insert_closest_band_point(points_n, outlier_edge, sh.contour)
+    points_n = points_n.detach().clone().requires_grad_(True)
+    points_init = points_n.detach().clone()
+
+    if vis_path is not None:
+        points_to_png(points_n, vis_path, background_image=sh.contour_img)
+    return points_n, points_init
+
+def remove_hard(points_n, vis_path=None):
+    redundant_edge = detect_redundant_point_by_edge(points_n)
+    points_n = remove_redundant_point(points_n, redundant_edge)
+    points_n = points_n.detach().clone().requires_grad_(True)
+    points_init = points_n.detach().clone()
+
+    if vis_path is not None:
+        points_to_png(points_n, vis_path, background_image=sh.contour_img)
+    return points_n, points_init
+
 def is_need_more_points(point_n, contour_img):
 
     def polygon_to_contour_mask(points: torch.Tensor, resolution: int, width: int = 1) -> torch.Tensor:

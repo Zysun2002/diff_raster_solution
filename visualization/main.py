@@ -177,11 +177,8 @@ class MyDocument4Column(Document):
     def fill_document(self, image_path: Path, doc: Document):
 
         # Get all subdirectories and shuffle them randomly
-        ipdb.set_trace()
         all_subdirs = [p for p in image_path.iterdir() if p.is_dir()]
-        random.shuffle(all_subdirs)
         
-        ipdb.set_trace()
         for sub_path in tqdm(
             all_subdirs,
             desc="visualizing"
@@ -191,7 +188,7 @@ class MyDocument4Column(Document):
                 continue
 
             image_keys = [
-                'target', "contour", "contour udf", "init vec", "vect warmup", "vec 1 pass", "vec 2 pass",\
+                'target', "contour", "contour udf", "init vec", "vec warmup", "vec 1 pass", "vec 2 pass",\
                 "vec", "vec bg"
             ]
 
