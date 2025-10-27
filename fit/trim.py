@@ -335,7 +335,7 @@ def add_optm_based(points_n, add_points_sh):
         mid = mid_from_four_point(points_n, i)
         optimizer = torch.optim.Adam([mid], lr=1e-3)  # Only optimize the midpoint
 
-            # Create points with frozen original points and trainable midpoint
+        # Create points with frozen original points and trainable midpoint
         pts_prev = points_n[:i+1].detach()  # Frozen
         pts_next = points_n[i+1:].detach()   # Frozen
         points_with_mid = torch.cat([pts_prev, mid.unsqueeze(0), pts_next], dim=0)
@@ -371,12 +371,13 @@ def add_optm_based(points_n, add_points_sh):
             # ipdb.set_trace()
 
         point_values = np.zeros(points_with_mid.shape[0])
-        point_values[i+1] = 1
+        point_values[:i+1]=1; point_values[i+1] = 2; point_values[i+2:] =1;
+
         points_to_png(
             points_with_mid.detach().cpu().numpy(), 
             sh.sub_exp_path / "add_points" / f"add_points_iter_{i:02}.png",
             background_image=sh.raster,
-            point_values=point_values
+            # point_values=point_values
         )
 
     return points_n.detach(), points_n.detach().clone()
