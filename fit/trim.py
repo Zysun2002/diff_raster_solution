@@ -13,6 +13,7 @@ from .loss import SmoothnessLoss, BandLoss, ImageLoss, StraightnessLoss
 import ipdb
 from pathlib import Path
 import random
+from .render import primitive, diff_render
 from .utils import points_to_png
 
 def add_hard(points_n, vis_path=None):
@@ -328,53 +329,32 @@ def add_optm_based(points_n, add_points_sh):
     render = pydiffvg.RenderFunction.apply
 
     for i in range(len(points_n)-1):
-        mid_point = (points_n[i] + points_n[i+1]) / 2.0
-        mid_point = mid_point.detach().requires_grad_(True)  # Only the midpoint requires grad
-        # ipdb.set_trace()
-        # Create points with frozen original points and trainable midpoint
-        points_before = points_n[:i+1].detach()  # Frozen
-        points_after = points_n[i+1:].detach()   # Frozen
-        points_with_mid = torch.cat([points_before, mid_point.unsqueeze(0), points_after], dim=0)
+        
+
+        # mid = pure_midpoint(points_n, i)
+        mid = mid_from_four_point(points_n, i)
+        optimizer = torch.optim.Adam([mid], lr=1e-3)  # Only optimize the midpoint
+
+            # Create points with frozen original points and trainable midpoint
+        pts_prev = points_n[:i+1].detach()  # Frozen
+        pts_next = points_n[i+1:].detach()   # Frozen
+        points_with_mid = torch.cat([pts_prev, mid.unsqueeze(0), pts_next], dim=0)
         points_init = points_with_mid.detach().clone()
 
-        color_n = torch.tensor(sh.color_guess, requires_grad=True)
-        polygon = pydiffvg.Polygon(points = points_with_mid, is_closed = True)
-        shapes = [polygon]
-        polygon_group = pydiffvg.ShapeGroup(shape_ids = torch.tensor([0]),
-                                            fill_color = color_n)
-        shape_groups = [polygon_group]
-        polygon.points = points_with_mid * sh.w
-        polygon_group.color = color_n
+        render, shapes, shape_groups = primitive(points_with_mid)
 
-        optimizer = torch.optim.Adam([mid_point], lr=1e-3)  # Only optimize the midpoint
 
         for t in range(add_points_sh.epoch):
         
             optimizer.zero_grad()
             # Reconstruct points_with_mid with updated midpoint
-            points_with_mid = torch.cat([points_before, mid_point.unsqueeze(0), points_after], dim=0)
+            points_with_mid = torch.cat([pts_prev, mid.unsqueeze(0), pts_next], dim=0)
             
-            # Forward pass: render the image.
-            shapes[0].points = points_with_mid * sh.w
+            img = diff_render(render, points_with_mid, shapes, shape_groups)
 
-            polygon_group.fill_color = color_n
-            scene_args = pydiffvg.RenderFunction.serialize_scene(\
-                sh.w, sh.w, shapes, shape_groups)
-            
-            seed = random.randint(0, 2**31 - 1)
-
-            img = render(sh.w,   # width
-                        sh.w,   # height
-                        sh.num_mc_x,     # num_samples_x
-                        sh.num_mc_y,     # num_samples_y
-                        seed + 117,   # seed
-                        sh.background, # background_image
-                        *scene_args)
-            
             img_loss = 10 * ImageLoss()(img, sh.raster)
             # img_loss = 2 * (img - raster).pow(2).mean() 
 
-            # smooth_loss = SmoothnessLoss()(points_n, points_init=points_init, is_close=True)
             
             smooth_loss = SmoothnessLoss(add_points_sh.smooth_loss)(points_with_mid, points_init=points_init, is_close=True)
 
@@ -394,11 +374,45 @@ def add_optm_based(points_n, add_points_sh):
         point_values[i+1] = 1
         points_to_png(
             points_with_mid.detach().cpu().numpy(), 
-            sh.sub_path / "add_points" / f"add_points_iter_{i:02}.png",
+            sh.sub_exp_path / "add_points" / f"add_points_iter_{i:02}.png",
             background_image=sh.raster,
             point_values=point_values
         )
 
-    return points_n.detach()
+    return points_n.detach(), points_n.detach().clone()
 
         # ipdb.set_trace()
+
+def pure_midpoint(points_n, i):
+    mid_point = (points_n[i] + points_n[i+1]) / 2.0
+    mid_point = mid_point.detach().requires_grad_(True)  # Only the midpoint requires grad
+    # ipdb.set_trace()
+
+
+    return mid_point
+
+def mid_from_four_point(points_n, i):
+    """
+    Four-point interpolation scheme (Catmull-Rom style)
+    Given four consecutive points P0, P1, P2, P3,
+    computes the interpolated midpoint between P1 and P2
+    using weighted combination of all four points.
+    """
+    n = len(points_n)
+    p0 = points_n[(i - 1) % n]  # Previous point
+    p1 = points_n[i]            # Current point
+    p2 = points_n[(i + 1) % n]  # Next point
+    p3 = points_n[(i + 2) % n]  # Point after next
+
+    # Catmull-Rom weights for midpoint between p1 and p2
+    # At t=0.5 (midpoint), the weights are:
+    w0 = -1/16   # Weight for p0
+    w1 = 9/16    # Weight for p1
+    w2 = 9/16    # Weight for p2
+    w3 = -1/16   # Weight for p3
+    
+    # Four-point interpolated midpoint
+    mid_point = w0 * p0 + w1 * p1 + w2 * p2 + w3 * p3
+    mid_point = mid_point.detach().requires_grad_(True)
+
+    return mid_point

@@ -27,7 +27,7 @@ from .loss import SmoothnessLoss, BandLoss, ImageLoss, StraightnessLoss
 from .trim import add_hard, remove_hard, detect_outlier_edge, insert_closest_band_point, \
        add_optm_based
 from .monitor import Monitor
-from .render import primitive
+from .render import primitive, diff_render
 
 # object-in-subfolder-level
 
@@ -36,39 +36,17 @@ def train(points_init, points_n, train_path, train_sh):
     sublogger = Logger()
     monitor = Monitor()
 
+    points_n = points_n.requires_grad_(True)
+
     optimizer = torch.optim.Adam([points_n], lr=1e-3)
     render, shapes, shape_groups = primitive(points_n)
-    # render = pydiffvg.RenderFunction.apply
-
-    # color_n = torch.tensor(sh.color_guess, requires_grad=True)
-    # polygon = pydiffvg.Polygon(points = points_n, is_closed = True)
-    # shapes = [polygon]
-    # polygon_group = pydiffvg.ShapeGroup(shape_ids = torch.tensor([0]),
-    #                                     fill_color = color_n)
-    # shape_groups = [polygon_group]
-    # polygon.points = points_n * sh.w
-    # polygon_group.color = color_n
-
 
     for t in range(train_sh.epoch):
         
         with monitor.section("forward rendering"):
 
             optimizer.zero_grad()
-            # Forward pass: render the image.
-            shapes[0].points = points_n * sh.w
-            scene_args = pydiffvg.RenderFunction.serialize_scene(\
-                sh.w, sh.w, shapes, shape_groups)
-            
-            seed = random.randint(0, 2**31 - 1)
-
-            img = render(sh.w,   # width
-                        sh.w,   # height
-                        sh.num_mc_x,     # num_samples_x
-                        sh.num_mc_y,     # num_samples_y
-                        seed + 117,   # seed
-                        sh.background, # background_image
-                        *scene_args)
+            img = diff_render(render, points_n, shapes, shape_groups)
         
         with monitor.section("save_images"):
 
@@ -82,7 +60,6 @@ def train(points_init, points_n, train_path, train_sh):
                               background_image=sh.contour_img, midpoint_indices=None)
                 points_to_pt(points_n.cpu(), train_path / 'points' / "points_{:03}.pt".format(t))
                 
-
             if t == 0:
                 pydiffvg.imwrite(img.cpu(), train_path / 'init_render.png', gamma=2.2)
 
@@ -108,7 +85,7 @@ def train(points_init, points_n, train_path, train_sh):
 
             smooth_loss.backward(retain_graph=True)
             smooth_grad = points_n.grad.clone() - points_grad
-            # points_grad = points_n.grad.clone()
+            points_grad = points_n.grad.clone()
 
             band_loss.backward(retain_graph=True)
             band_grad = points_n.grad.clone() - points_grad
@@ -116,8 +93,6 @@ def train(points_init, points_n, train_path, train_sh):
 
             straightness_loss.backward()
             straight_grad = points_n.grad.clone() - points_grad
-
-            # ipdb.set_trace()
 
             loss = img_loss + smooth_loss + band_loss + straightness_loss
 
@@ -147,7 +122,6 @@ def train(points_init, points_n, train_path, train_sh):
     
     logger.close()
     sublogger.plot_losses(train_path / "loss.png", train_path / "loss.txt")
-
     monitor.report(train_path / "time_report.json")
 
     # render_fitting_res(points_n, save_path=train_path, midpoint_indices=None)
@@ -156,15 +130,6 @@ def train(points_init, points_n, train_path, train_sh):
 
     return points_n
 
-# def trim(points_n):
-#     # ipdb.set_trace()
-#     redundant_point = detect_redundant_point(points_n)
-#     points_n = remove_redundant_point(points_n, redundant_point)
-
-#     redundant_point = detect_redundant_point_by_edge(points_n)
-#     points_n = remove_redundant_point(points_n, redundant_point)
-    
-#     return points_n.detach().clone().requires_grad_(True)
 
 def run(raster_path, exp_path):
 
@@ -197,11 +162,10 @@ def run(raster_path, exp_path):
     points_n, _ = add_hard(points_n, exp_path / "init_after_adding.png")    
     points_n, points_init = remove_hard(points_n, exp_path / "init_vec.png")
     points_n = train(points_init, points_n, exp_path / "warmup", sh.warmup_sh)
-    # points_loss = remove_points_based_on_loss(points_n, raster)
 
     # first pass
     points_n, points_init = remove_hard(points_n)
-    # points_n, points_init = add_optm_based(points_n)
+    points_n, points_init = add_optm_based(points_n, sh.add_points_sh)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
 
 
@@ -242,15 +206,15 @@ def batch(fold, resolution):
         
         if not (subfold / "aa_16.png").exists(): continue
 
-        sh.exp_sub_path = sh.exp_path / subfold.name
-        sh.exp_sub_path.mkdir(parents=True, exist_ok=True)
+        sh.sub_exp_path = sh.exp_path / subfold.name
+        sh.sub_exp_path.mkdir(parents=True, exist_ok=True)
 
         raster_name = f"aa_{resolution}.png"
-        shutil.copy(subfold / raster_name, sh.exp_sub_path)
+        shutil.copy(subfold / raster_name, sh.sub_exp_path)
 
         raster_path = subfold / f"aa_{resolution}.png"
 
-        run(raster_path, sh.exp_sub_path)
+        run(raster_path, sh.sub_exp_path)
 
         metadata["resolution"] = sh.w
 
@@ -266,7 +230,7 @@ if __name__ == "__main__":
 
     exp_path = sub_path / "test_2"
 
-    sh.sub_path = sub_path
+    sh.sub_exp_path = exp_path
 
     logger.create_log(sub_path / "log.txt")
     
