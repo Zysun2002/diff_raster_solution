@@ -324,7 +324,7 @@ def remove_points_based_on_loss(points_n, raster):
     return points_loss
     # ipdb.set_trace()
 
-def add_points_based_on_optimization(points_n, add_points_sh):
+def add_optm_based(points_n, add_points_sh):
     render = pydiffvg.RenderFunction.apply
 
     for i in range(len(points_n)-1):

@@ -9,19 +9,17 @@ from datetime import datetime
 
 from .share import sh
 from .utils import points_to_svg, points_to_png
+from .render import primitive
 import ipdb
 
 
-def render_fitting_res(shapes, shape_groups, points_n, color_n, save_path, midpoint_indices=None):
-    shapes[0].points = points_n * sh.w
-    shape_groups[0].fill_color = color_n
-    # scene_args = pydiffvg.RenderFunction.serialize_scene(\
-    #     sh.w, sh.w, shapes, shape_groups, 
-    #     filter=pydiffvg.PixelFilter(type = diffvg.FilterType.hann, radius = torch.tensor(sh.w/16)))
+def render_fitting_res(points_n, save_path, midpoint_indices=None):
+    
+    
+    render, shapes, shape_groups = primitive(points_n)
     scene_args = pydiffvg.RenderFunction.serialize_scene(\
         sh.w, sh.w, shapes, shape_groups)
     
-    render = pydiffvg.RenderFunction.apply
     img = render(sh.w,   # width
                 sh.w,   # height
                 sh.num_mc_x,     # num_samples_x
@@ -32,7 +30,6 @@ def render_fitting_res(shapes, shape_groups, points_n, color_n, save_path, midpo
     # Save the images and differences.
     pydiffvg.imwrite(img.cpu(), save_path / "render.png", gamma=2.2)
 
-    # ipdb.set_trace()
     points_to_png(shapes[0].points / sh.w, save_path.parent / f"vec_{save_path.name}.png", midpoint_indices=midpoint_indices)
     points_to_png(shapes[0].points / sh.w, save_path / f"vec_bg_{save_path.name}.png", background_image=sh.contour_img, midpoint_indices=midpoint_indices)
 

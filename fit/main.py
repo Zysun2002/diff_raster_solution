@@ -25,28 +25,30 @@ from .log import logger, Logger, visualize_grad
 from .segmentation import sample_from_boundary
 from .loss import SmoothnessLoss, BandLoss, ImageLoss, StraightnessLoss
 from .trim import add_hard, remove_hard, detect_outlier_edge, insert_closest_band_point, \
-      remove_points_based_on_loss, add_points_based_on_optimization
+       add_optm_based
 from .monitor import Monitor
+from .render import primitive
 
 # object-in-subfolder-level
 
 def train(points_init, points_n, train_path, train_sh):
 
     sublogger = Logger()
-
-    render = pydiffvg.RenderFunction.apply
-
-    color_n = torch.tensor(sh.color_guess, requires_grad=True)
-    polygon = pydiffvg.Polygon(points = points_n, is_closed = True)
-    shapes = [polygon]
-    polygon_group = pydiffvg.ShapeGroup(shape_ids = torch.tensor([0]),
-                                        fill_color = color_n)
-    shape_groups = [polygon_group]
-    polygon.points = points_n * sh.w
-    polygon_group.color = color_n
+    monitor = Monitor()
 
     optimizer = torch.optim.Adam([points_n], lr=1e-3)
-    monitor = Monitor()
+    render, shapes, shape_groups = primitive(points_n)
+    # render = pydiffvg.RenderFunction.apply
+
+    # color_n = torch.tensor(sh.color_guess, requires_grad=True)
+    # polygon = pydiffvg.Polygon(points = points_n, is_closed = True)
+    # shapes = [polygon]
+    # polygon_group = pydiffvg.ShapeGroup(shape_ids = torch.tensor([0]),
+    #                                     fill_color = color_n)
+    # shape_groups = [polygon_group]
+    # polygon.points = points_n * sh.w
+    # polygon_group.color = color_n
+
 
     for t in range(train_sh.epoch):
         
@@ -55,8 +57,6 @@ def train(points_init, points_n, train_path, train_sh):
             optimizer.zero_grad()
             # Forward pass: render the image.
             shapes[0].points = points_n * sh.w
-
-            polygon_group.fill_color = color_n
             scene_args = pydiffvg.RenderFunction.serialize_scene(\
                 sh.w, sh.w, shapes, shape_groups)
             
@@ -149,9 +149,9 @@ def train(points_init, points_n, train_path, train_sh):
     sublogger.plot_losses(train_path / "loss.png", train_path / "loss.txt")
 
     monitor.report(train_path / "time_report.json")
-    render_fitting_res(shapes, shape_groups, points_n, color_n, save_path=train_path, midpoint_indices=None)
 
-    visualize_video(train_path / "vis", train_path/"vis.mp4", delete_images=False)
+    # render_fitting_res(points_n, save_path=train_path, midpoint_indices=None)
+    # visualize_video(train_path / "vis", train_path/"vis.mp4", delete_images=False)
     logger.print("-"*40 + "\n\n\n") 
 
     return points_n
@@ -201,6 +201,7 @@ def run(raster_path, exp_path):
 
     # first pass
     points_n, points_init = remove_hard(points_n)
+    # points_n, points_init = add_optm_based(points_n)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
 
 
@@ -208,7 +209,7 @@ def run(raster_path, exp_path):
     points_n, points_init = remove_hard(points_n)
     points_n = train(points_init, points_n, exp_path / "pass_2", sh.pass_sh)
 
-    # points_n = trim(points_n)
+    points_n, _ = remove_hard(points_n)
     
     # points_n = add_points_based_on_optimization(points_n, sh.add_points_sh)
     points_to_png(points_n, exp_path / "vec_bg.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
