@@ -325,67 +325,178 @@ def remove_points_based_on_loss(points_n, raster):
     return points_loss
     # ipdb.set_trace()
 
-def add_optm_based(points_n, add_points_sh):
-    render = pydiffvg.RenderFunction.apply
+def get_optim_and_frozen_points(points_n, i, step, mid):
+    """
+    Extract optimization and frozen points for windowed optimization.
+    
+    Args:
+        points_n: Original points tensor
+        i: Current point index (where midpoint will be inserted after)
+        step: Number of points on each side of midpoint to optimize
+        mid: Midpoint tensor (already requires_grad=True)
+    
+    Returns:
+        optim_points: List of trainable points (including midpoint)
+        frozen_points: List of frozen points
+        optim_indices: Indices of optimization points in original array
+        frozen_indices: Indices of frozen points in original array
+        mid_pos_in_window: Position of midpoint in optimization window
+    """
+    n = len(points_n)
+    # ipdb.set_trace()
+    # Get optimization window: step points on each side of the midpoint
+    optim_indices = []
+    for j in range(-step+1, step+1):
+        optim_indices.append((i + j) % n)
+    
+    optim_points = [points_n[idx].detach().requires_grad_(True) for idx in optim_indices]
+    
+    mid_pos_in_window = step  # Midpoint is at position 'step' in the window
+    optim_points.insert(mid_pos_in_window, mid)
+    
+    # Extract frozen points (everything not in optimization window)
+    frozen_indices = []
+    optim_set = set(optim_indices)
+    for j in range(n):
+        if j not in optim_set:
+            frozen_indices.append(j)
+    
+    frozen_points = [points_n[idx].detach() for idx in frozen_indices]
+    
+    return optim_points, frozen_points, optim_indices, frozen_indices, mid_pos_in_window
 
-    for i in range(len(points_n)-1):
+def label_optim_point(points_with_mid, optim_indices, i):
+        point_values = np.zeros(points_with_mid.shape[0])  # All points default value 1
+        # Mark optimization window with value 2
+        # ipdb.set_trace()
         
+        for k, idx in enumerate(optim_indices):
+            # Map original index to new array index (accounting for inserted midpoint)
+            if idx > i:
+                new_idx = idx + 1  # Shift by 1 due to inserted midpoint
+            else:
+                new_idx = idx  # No shift for indices before insertion point
+            
+            # Check bounds before assignment
+            if 0 <= new_idx < len(point_values):
+                point_values[new_idx] = 1
+        
+        # Mark midpoint with value 2 (always at position i+1)
+        if i + 1 < len(point_values):
+            point_values[i + 1] = 1
 
-        # mid = pure_midpoint(points_n, i)
-        mid = mid_from_four_point(points_n, i)
-        optimizer = torch.optim.Adam([mid], lr=1e-3)  # Only optimize the midpoint
+        return point_values
 
-        # Create points with frozen original points and trainable midpoint
-        pts_prev = points_n[:i+1].detach()  # Frozen
-        pts_next = points_n[i+1:].detach()   # Frozen
-        points_with_mid = torch.cat([pts_prev, mid.unsqueeze(0), pts_next], dim=0)
+def angle(points_with_mid, i):
+    p_prev = points_with_mid[i - 1]
+    p_curr = points_with_mid[i]
+    p_next = points_with_mid[(i + 1) % len(points_with_mid)]
+
+    v1 = p_curr - p_prev
+    v2 = p_next - p_curr
+
+    cos_angle = torch.dot(v1, v2) / (torch.norm(v1) * torch.norm(v2) + 1e-8)
+    angle_rad = torch.acos(torch.clamp(cos_angle, -1.0, 1.0))
+    angle_deg = angle_rad * (180.0 / torch.pi)
+
+    return angle_deg.item() / (v1.norm() * v2.norm())
+
+def add_optm_based(points_n, add_points_sh):
+    step = getattr(add_points_sh, 'step', 1)  # Default step = 1
+    
+    # Store original points - this will never change
+    original_points = points_n.detach().clone()
+
+    for i in range(len(original_points)):
+        n = len(original_points)
+        
+        # Always start with original points for each iteration
+        current_points = original_points.clone()
+        
+        # Create midpoint between point i and point i+1
+        # mid = mid_from_four_point(current_points, i)
+        mid = pure_midpoint(current_points, i)
+        
+        # Get optimization and frozen points based on current_points (original)
+        optim_points, frozen_points, optim_indices, frozen_indices, mid_pos_in_window = get_optim_and_frozen_points(current_points, i, step, mid)
+        optimizer = torch.optim.Adam(optim_points, lr=1e-3)
+        
+        # Reconstruct full point sequence
+        def reconstruct_points():
+            # Create new array with space for all original points + midpoint
+            new_points = []
+            # ipdb.set_trace()
+            
+            # Build the sequence by going through original indices in order
+            for orig_idx in range(n):
+                # Add the original point (either optimized or frozen)
+                if orig_idx in optim_indices:
+                    # Find position in optim_points (excluding midpoint)
+                    pos_in_optim = optim_indices.index(orig_idx)
+                    if pos_in_optim >= mid_pos_in_window:
+                        pos_in_optim += 1  # Skip midpoint position
+                    new_points.append(optim_points[pos_in_optim])
+                else:
+                    # Frozen point
+                    pos_in_frozen = frozen_indices.index(orig_idx)
+                    new_points.append(frozen_points[pos_in_frozen])
+                
+                # Insert midpoint after point i
+                if orig_idx == i:
+                    new_points.append(optim_points[mid_pos_in_window])
+            
+            return torch.stack(new_points)
+        
+        points_with_mid = reconstruct_points()
         points_init = points_with_mid.detach().clone()
-
         render, shapes, shape_groups = primitive(points_with_mid)
 
+        point_label = label_optim_point(points_with_mid, optim_indices, i)
 
         for t in range(add_points_sh.epoch):
-        
             optimizer.zero_grad()
-            # Reconstruct points_with_mid with updated midpoint
-            points_with_mid = torch.cat([pts_prev, mid.unsqueeze(0), pts_next], dim=0)
+            
+            # Reconstruct points with current optimization values
+            points_with_mid = reconstruct_points()
             
             img = diff_render(render, points_with_mid, shapes, shape_groups)
-
-            img_loss = 10 * ImageLoss()(img, sh.raster)
-            # img_loss = 2 * (img - raster).pow(2).mean() 
-
-            
+            img_loss = ImageLoss()(img, sh.raster)
             smooth_loss = SmoothnessLoss(add_points_sh.smooth_loss)(points_with_mid, points_init=points_init, is_close=True)
-
             band_loss = BandLoss(add_points_sh.band_loss)(points_with_mid, sh.udf)
-
-            # straightness_loss = StraightnessLoss(add_points_sh.straightness_loss)(points_with_mid, is_close=True)
-
-            loss = img_loss
-
-            # ipdb.set_trace()
+            
+            loss = img_loss + smooth_loss + band_loss
             loss.backward()
             optimizer.step()
 
-            # ipdb.set_trace()
-
-        point_values = np.zeros(points_with_mid.shape[0])
-        point_values[:i+1]=1; point_values[i+1] = 2; point_values[i+2:] =1;
+            points_to_png(
+                points_with_mid.detach().cpu().numpy(),
+                sh.sub_exp_path / "add_points" / f"mid_{i}" / f"add_points_iter_{i:02}_step_{t:03}.png",
+                background_image=sh.raster,
+                binary_color=True,
+                point_values=point_label
+            )
+        
+        # ipdb.set_trace()
 
         points_to_png(
             points_with_mid.detach().cpu().numpy(), 
             sh.sub_exp_path / "add_points" / f"add_points_iter_{i:02}.png",
             background_image=sh.raster,
-            # point_values=point_values
+            point_values=point_label,
+            binary_color=True
         )
 
-    return points_n.detach(), points_n.detach().clone()
+        # print(angle(points_with_mid, i+1))
+        # Note: We intentionally don't update original_points or points_n
+        # Each iteration starts fresh with the original unchanged points
+
+    # Return the original unchanged points
+    return original_points.detach(), original_points.detach().clone()
 
         # ipdb.set_trace()
 
 def pure_midpoint(points_n, i):
-    mid_point = (points_n[i] + points_n[i+1]) / 2.0
+    mid_point = (points_n[i] + points_n[(i+1) % len(points_n)]) / 2.0
     mid_point = mid_point.detach().requires_grad_(True)  # Only the midpoint requires grad
     # ipdb.set_trace()
 
@@ -417,3 +528,29 @@ def mid_from_four_point(points_n, i):
     mid_point = mid_point.detach().requires_grad_(True)
 
     return mid_point
+
+def divide_points(points_with_mid, i):
+    n = points_with_mid.shape[0]
+    pts_prev = points_with_mid[:i+1]  # Up to and including point i
+    pts_next = points_with_mid[i+2:]  # From point i+2 to end
+    return pts_prev, pts_next
+
+def divide_points(points, i):
+    step = 1
+    n = points.shape[0]
+    
+    # Handle circular indexing for closed polygons
+    pts_prev = points[:i+1]
+    
+    # Get optimization points with circular wraparound
+    optim_indices = [(i + 1 + j) % n for j in range(step)]
+    pts_optim = points[optim_indices]
+    
+    # Get remaining points after optimization section
+    next_start = (i + 1 + step) % n
+    if next_start <= i:  # Wrapped around
+        pts_next = torch.cat([points[next_start:], points[:i+1-n+next_start]], dim=0)
+    else:  # No wraparound
+        pts_next = points[next_start:]
+
+    return pts_prev, pts_optim, pts_next

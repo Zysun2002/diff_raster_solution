@@ -124,7 +124,7 @@ def train(points_init, points_n, train_path, train_sh):
     sublogger.plot_losses(train_path / "loss.png", train_path / "loss.txt")
     monitor.report(train_path / "time_report.json")
 
-    # render_fitting_res(points_n, save_path=train_path, midpoint_indices=None)
+    render_fitting_res(points_n, save_path=train_path, midpoint_indices=None)
     # visualize_video(train_path / "vis", train_path/"vis.mp4", delete_images=False)
     logger.print("-"*40 + "\n\n\n") 
 
@@ -162,16 +162,20 @@ def run(raster_path, exp_path):
     points_n, _ = add_hard(points_n, exp_path / "init_after_adding.png")    
     points_n, points_init = remove_hard(points_n, exp_path / "init_vec.png")
     points_n = train(points_init, points_n, exp_path / "warmup", sh.warmup_sh)
-
+    points_to_png(points_n, exp_path / "warmup_vec.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
+    # points_n, points_init = add_optm_based(points_n, sh.add_points_sh)
+    
     # first pass
     points_n, points_init = remove_hard(points_n)
-    points_n, points_init = add_optm_based(points_n, sh.add_points_sh)
+    points_to_png(points_n, exp_path / "after_removing.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
-
+    add_optm_based(points_n, sh.add_points_sh)
 
     # second pass
     points_n, points_init = remove_hard(points_n)
     points_n = train(points_init, points_n, exp_path / "pass_2", sh.pass_sh)
+    # points_to_png(points_n, exp_path / "pass2_vec.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
+    
 
     points_n, _ = remove_hard(points_n)
     

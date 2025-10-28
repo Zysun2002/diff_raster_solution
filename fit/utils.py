@@ -109,7 +109,8 @@ def points_to_png(points, png_name,
                   close_path=True,
                   background_image=None,
                   midpoint_indices=None,
-                  point_values=None):
+                  point_values=None,
+                  binary_color = False):
     """
     Draw [N,2] points directly into a raster PNG with optional background image.
     Points should be normalized [0,1].
@@ -192,12 +193,19 @@ def points_to_png(points, png_name,
         
         # Map from blue (0) to red (1)
         colors = []
-        for val in normalized_values:
+        if binary_color:
+            for i in range(len(iterable_pts)):
+                if point_values[i] == 0:
+                    colors.append("rgb(255,0,0)")  # Red
+                else:
+                    colors.append("rgb(0,255,0)")  # Green
+        else:
+            for val in normalized_values:
             # Blue to red: (255*val, 0, 255*(1-val))
-            r = int(255 * val)
-            g = 0
-            b = 0
-            colors.append(f"rgb({r},{g},{b})")
+                r = int(255 * val)
+                g = 0
+                b = 0
+                colors.append(f"rgb({r},{g},{b})")
     
     for i, (x, y) in enumerate(iterable_pts):
         # Use value-based color if provided
