@@ -399,6 +399,7 @@ def angle(points_with_mid, i):
     angle_rad = torch.acos(torch.clamp(cos_angle, -1.0, 1.0))
     angle_deg = angle_rad * (180.0 / torch.pi)
 
+    return angle_deg.item()
     return angle_deg.item() / (v1.norm() * v2.norm())
 
 def add_optm_based(points_n, add_points_sh):
@@ -486,7 +487,7 @@ def add_optm_based(points_n, add_points_sh):
             binary_color=True
         )
 
-        # print(angle(points_with_mid, i+1))
+        print(angle(points_with_mid, i+1))
         # Note: We intentionally don't update original_points or points_n
         # Each iteration starts fresh with the original unchanged points
 
