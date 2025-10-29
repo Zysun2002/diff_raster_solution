@@ -184,10 +184,11 @@ class InitializationSampler():
         pass
 
     def __call__(self, contour):
-        return self.forward0(contour)
+        return self.forward_Euclean(contour)
     
     def forward0(self, contour):
 
+        ipdb.set_trace()
         diffs = np.diff(contour, axis=0, append=contour[:1])
         segment_lengths = np.sqrt((diffs**2).sum(axis=1))
         cumlen = np.cumsum(segment_lengths)
@@ -252,3 +253,50 @@ class InitializationSampler():
             sampled_points.append(pt)
 
         return np.array(sampled_points, dtype=np.float32)
+    
+    def forward_Euclean(self, contour):
+        """Sample points evenly along contour pixels using Euclidean distance"""
+        
+        contour = np.asarray(contour, dtype=np.float32)
+        n = len(contour)
+        
+        # Calculate Euclidean distances between consecutive points
+        diffs = np.diff(contour, axis=0, append=contour[:1])  # wrap around
+        segment_lengths = np.sqrt((diffs**2).sum(axis=1))
+        
+        # Build cumulative distance array
+        cumlen = np.cumsum(segment_lengths)
+        cumlen = np.insert(cumlen, 0, 0)  # Start at 0
+        total_len = cumlen[-1]
+        
+        # Calculate target Euclidean distances for even spacing
+        target_euclidean_dist = total_len / sh.num_samples
+        target_lens = np.linspace(0, total_len, sh.num_samples, endpoint=False)
+        
+        # Sample points at target distances
+        sampled_points = []
+        for t in target_lens:
+            # Find which segment contains distance t
+            idx = np.searchsorted(cumlen, t) - 1
+            idx = np.clip(idx, 0, n - 1)
+            
+            seg_start = contour[idx]
+            seg_end = contour[(idx + 1) % n]
+            seg_len = segment_lengths[idx]
+            
+            if seg_len == 0:
+                sampled_points.append(seg_start)
+            else:
+                # Linear interpolation along the segment
+                alpha = (t - cumlen[idx]) / seg_len
+                pt = (1 - alpha) * seg_start + alpha * seg_end
+                sampled_points.append(pt)
+        
+        sampled_points = np.array(sampled_points, dtype=np.float32)
+        
+        # Normalize to [0,1]
+        sampled_points[:, 0] /= sh.w  # normalize x
+        sampled_points[:, 1] /= sh.w  # normalize y
+        
+        return torch.nn.Parameter(torch.tensor(sampled_points, dtype=torch.float32))
+

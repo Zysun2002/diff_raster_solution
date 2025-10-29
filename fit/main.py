@@ -41,6 +41,8 @@ def train(points_init, points_n, train_path, train_sh):
     optimizer = torch.optim.Adam([points_n], lr=1e-3)
     render, shapes, shape_groups = primitive(points_n)
 
+    point_prices, point_weight = try_remove(points_n)
+
     for t in range(train_sh.epoch):
         
         with monitor.section("forward rendering"):
@@ -71,7 +73,8 @@ def train(points_init, points_n, train_path, train_sh):
             # img_loss = 2 * (img - raster).pow(2).mean() 
             # smooth_loss = SmoothnessLoss()(points_n, points_init=points_init, is_close=True)
             
-            smooth_loss = SmoothnessLoss(train_sh.smooth_loss)(points_n, points_init=points_init, is_close=True)
+            # smooth_loss = SmoothnessLoss(train_sh.smooth_loss)(points_n, points_init=points_init, is_close=True)
+            smooth_loss = SmoothnessLoss(train_sh.smooth_loss)(points_n, ext_w=point_weight, points_init=points_init, is_close=True)
 
             band_loss = BandLoss(train_sh.band_loss)(points_n, sh.udf)
 
@@ -167,7 +170,6 @@ def run(raster_path, exp_path):
     
     # first pass
     points_n, points_init = remove_hard(points_n)
-    point_prices = try_remove(points_n)
     points_to_png(points_n, exp_path / "after_removing.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
 
@@ -232,7 +234,7 @@ def batch(fold, resolution):
 
 if __name__ == "__main__":
 
-    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\castle")
+    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\axe")
 
     exp_path = sub_path / "test_2"
 

@@ -28,7 +28,7 @@ class SmoothnessLoss:
         # self.w_5 = 0.5
         # self.w_6 = 0.5
 
-    def __call__(self, points, points_init, is_close):
+    def __call__(self, points, points_init=None, is_close=None, ext_w=None):
         if self.mode is None:return None
 
         
@@ -36,7 +36,8 @@ class SmoothnessLoss:
             return self.forward_poisson_and_angle(points, points_init, is_close)
         elif self.mode == "angle_weighted":
             return self.forward_angle_weighted(points, points_init, is_close)
-
+        elif self.mode == "external_weight":
+            return self.forward_external_w(points, ext_w, points_init, is_close)
         else:
             raise ValueError(f"Unknown forward mode: {self.mode}")
     
@@ -48,6 +49,26 @@ class SmoothnessLoss:
         # Add more elif branches for other modes
         else:
             raise ValueError(f"Unknown latex mode: {self.mode}")
+
+    def forward_external_w(self, points, ext_w, points_init,is_close):
+
+        if is_close:
+            points = torch.cat([points[-1:], points, points[:1]], dim=0)
+            points_init = torch.cat([points_init[-1:], points_init, points_init[:1]], dim=0)
+
+        e1 = points[:-2] - points[1:-1]
+        e2 = points[1:-1] - points[2:]
+
+        e1_init = points_init[:-2] - points_init[1:-1]
+        e2_init = points_init[1:-1] - points_init[2:]
+
+        e1_init_norm = e1 / (e1_init.norm(dim=1, keepdim=True) + 1e-6)
+        e2_init_norm = e2 / (e2_init.norm(dim=1, keepdim=True) + 1e-6)
+
+        diff = e1_init_norm - e2_init_norm
+        
+        return self.w * (ext_w * (diff ** 2).mean(dim=1)).mean()
+
 
     def forward_0(self, points, is_close):
         """direction and distance"""      

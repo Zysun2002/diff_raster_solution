@@ -574,11 +574,11 @@ def try_remove(points_n):
         # Create new primitive objects for the reduced point set
         render_test, shapes_test, shape_groups_test = primitive(test_points)
         
-        points_to_png(
-            test_points.detach().cpu().numpy(), 
-            sh.sub_exp_path / "remove_points" / f"try_remove_point_{i:02}.png",
-            background_image=sh.raster
-        )
+        # points_to_png(
+        #     test_points.detach().cpu().numpy(), 
+        #     sh.sub_exp_path / "remove_points" / f"try_remove_point_{i:02}.png",
+        #     background_image=sh.raster
+        # )
         
         # Use the correctly sized primitive objects
         img_test = diff_render(render_test, test_points, shapes_test, shape_groups_test)
@@ -589,5 +589,12 @@ def try_remove(points_n):
         # print(f"Point {i}, diff loss: {loss_diff.item()}")
         points_loss.append(loss_diff.item())
 
-    # print(points_loss)
-    return points_loss
+    
+    price = torch.tensor(points_loss)
+    p_min, p_max = price.min(), price.max()
+    price_norm = (price - p_min) / (p_max - p_min + 1e-8)
+    w = (1 - price_norm) ** 2
+    w = 0.1 + 0.9 * w
+
+
+    return points_loss, w
