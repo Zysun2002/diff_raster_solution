@@ -254,6 +254,7 @@ class BandLoss:
 
     def __call__(self, points, udf):
         if self.mode is None:
+            print("No band loss applied.")
             return torch.tensor(0.0, dtype=torch.float32, device=points.device)
 
         if self.mode == "midpoint":

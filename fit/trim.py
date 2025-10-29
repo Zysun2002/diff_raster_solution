@@ -555,3 +555,39 @@ def divide_points(points, i):
         pts_next = points[next_start:]
 
     return pts_prev, pts_optim, pts_next
+
+
+def try_remove(points_n):
+    N = len(points_n)
+    raster = sh.raster
+
+    # ipdb.set_trace()
+
+    # Get baseline loss with original points
+    render_prev, shapes_prev, shape_groups_prev = primitive(points_n)
+    loss_prev = ImageLoss()(diff_render(render_prev, points_n, shapes_prev, shape_groups_prev), raster)
+    points_loss = []
+
+    for i in range(N):
+        test_points = torch.cat([points_n[:i], points_n[i+1:]], dim=0)
+        
+        # Create new primitive objects for the reduced point set
+        render_test, shapes_test, shape_groups_test = primitive(test_points)
+        
+        points_to_png(
+            test_points.detach().cpu().numpy(), 
+            sh.sub_exp_path / "remove_points" / f"try_remove_point_{i:02}.png",
+            background_image=sh.raster
+        )
+        
+        # Use the correctly sized primitive objects
+        img_test = diff_render(render_test, test_points, shapes_test, shape_groups_test)
+        # pydiffvg.imwrite(img_test.cpu(), sh.sub_exp_path / "remove_points" / f"render_{i:02}.png", gamma=2.2)
+        
+        loss_test = ImageLoss()(img_test, raster)
+        loss_diff = loss_test - loss_prev
+        # print(f"Point {i}, diff loss: {loss_diff.item()}")
+        points_loss.append(loss_diff.item())
+
+    # print(points_loss)
+    return points_loss

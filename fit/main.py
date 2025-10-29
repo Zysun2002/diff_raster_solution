@@ -25,7 +25,7 @@ from .log import logger, Logger, visualize_grad
 from .segmentation import sample_from_boundary
 from .loss import SmoothnessLoss, BandLoss, ImageLoss, StraightnessLoss
 from .trim import add_hard, remove_hard, detect_outlier_edge, insert_closest_band_point, \
-       add_optm_based
+       add_optm_based, try_remove
 from .monitor import Monitor
 from .render import primitive, diff_render
 
@@ -167,9 +167,9 @@ def run(raster_path, exp_path):
     
     # first pass
     points_n, points_init = remove_hard(points_n)
+    point_prices = try_remove(points_n)
     points_to_png(points_n, exp_path / "after_removing.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
-    add_optm_based(points_n, sh.add_points_sh)
 
     # second pass
     points_n, points_init = remove_hard(points_n)
@@ -182,6 +182,8 @@ def run(raster_path, exp_path):
     # points_n = add_points_based_on_optimization(points_n, sh.add_points_sh)
     points_to_png(points_n, exp_path / "vec_bg.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
     points_to_png(points_n, exp_path / "vec.png")
+    # add_optm_based(points_n, sh.add_points_sh) 
+
 
 
 
@@ -230,7 +232,7 @@ def batch(fold, resolution):
 
 if __name__ == "__main__":
 
-    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\axe")
+    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\castle")
 
     exp_path = sub_path / "test_2"
 
