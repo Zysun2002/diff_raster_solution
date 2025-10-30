@@ -165,24 +165,27 @@ def run(raster_path, exp_path):
     points_n, _ = add_hard(points_n, exp_path / "init_after_adding.png")    
     points_n, points_init = remove_hard(points_n, exp_path / "init_vec.png")
     points_n = train(points_init, points_n, exp_path / "warmup", sh.warmup_sh)
-    points_to_png(points_n, exp_path / "warmup_vec.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
+    points_to_png(points_n, exp_path / "warmup_vec.png", background_image=sh.raster, midpoint_indices=sh.midpoint_indices)
     # points_n, points_init = add_optm_based(points_n, sh.add_points_sh)
     
     # first pass
     points_n, points_init = remove_hard(points_n)
-    points_to_png(points_n, exp_path / "after_removing.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
+    points_to_png(points_n, exp_path / "after_removing.png", background_image=sh.raster, midpoint_indices=sh.midpoint_indices)
     points_n = train(points_init, points_n, exp_path / "pass", sh.pass_sh)
 
     # second pass
     points_n, points_init = remove_hard(points_n)
     points_n = train(points_init, points_n, exp_path / "pass_2", sh.pass_sh)
-    # points_to_png(points_n, exp_path / "pass2_vec.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
+    
+    # points_to_png(points_n, exp_path / "pass2_vec.png", background_image=sh.raster, midpoint_indices=sh.midpoint_indices)
     
 
     points_n, _ = remove_hard(points_n)
+
+    np.save(exp_path / "points.npy", points_n.detach().cpu().numpy())
     
     # points_n = add_points_based_on_optimization(points_n, sh.add_points_sh)
-    points_to_png(points_n, exp_path / "vec_bg.png", background_image=contour_img, midpoint_indices=sh.midpoint_indices)
+    points_to_png(points_n, exp_path / "vec_bg.png", background_image=sh.raster, midpoint_indices=sh.midpoint_indices)
     points_to_png(points_n, exp_path / "vec.png")
     # add_optm_based(points_n, sh.add_points_sh) 
 
@@ -234,8 +237,8 @@ def batch(fold, resolution):
 
 if __name__ == "__main__":
 
-    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14\axe")
 
+    sub_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-28\23-34-15\axe")
     exp_path = sub_path / "test_2"
 
     sh.sub_exp_path = exp_path

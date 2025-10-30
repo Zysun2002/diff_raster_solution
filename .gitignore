@@ -3,6 +3,8 @@ exp/
 raw/
 .github/
 .vscode/
+test_one_time/
+
 __pycache__/
 auto_restart.log
 log.txt
