@@ -1,5 +1,5 @@
 from .main import run_latex
-from .utils import add_suffix
+# from .utils import add_suffix
 
 def run(data_path, gallery_path):
 

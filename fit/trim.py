@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import pydiffvg
 from .loss import SmoothnessLoss, BandLoss, ImageLoss, StraightnessLoss
 import ipdb
+from .log import Logger
 from pathlib import Path
 import random
 from .render import primitive, diff_render
@@ -28,9 +29,11 @@ def add_hard(points_n, vis_path=None):
     return points_n, points_init
 
 def remove_hard(points_n, vis_path=None):
-    redundant_edge = detect_redundant_point_by_length(points_n)
-    points_n = remove_redundant_point(points_n, redundant_edge)
+    
+    # Multi-iteration length-based removal (returns modified points directly)
+    points_n = detect_redundant_point_by_length(points_n)
 
+    # Single iteration angle-based removal
     redundant_point = detect_redundant_point_by_angle(points_n)
     points_n = remove_redundant_point(points_n, redundant_point)
 
@@ -233,16 +236,62 @@ def find_midpoint_on_contour(contour_mask, start, end):
 
 
 def detect_redundant_point_by_length(points):
-    # if two points are sufficiently close, consider one redundant
-    redundant_point = []
-    threshold = 2.0 / sh.w  # threshold in normalized coords
-    N = points.shape[0]                 
-    for i in range(N):
-        p1 = points[i]
-        p2 = points[(i + 1) % N]
+    """
+    Simple multi-iteration removal of close points.
+    Never removes two adjacent points in the same iteration.
+    """
+    current_points = points.clone()
+    iteration = 0
+
+    threshold = 2.0 / sh.w
+
+
+    to_remove = []
+    for i in range(len(current_points)):
+        p1 = current_points[i]
+        p2 = current_points[(i + 1) % len(current_points)]
         if torch.norm(p1 - p2) < threshold:
-            redundant_point.append((i + 1) % N)
-    return redundant_point
+            to_remove.append((i + 1) % len(current_points))
+
+    while to_remove:
+        
+        N = current_points.shape[0]
+        
+        
+        # Remove adjacent points from the removal list to avoid removing neighbors
+        safe_to_remove = []
+        for idx in sorted(to_remove):
+            # Check if this point is adjacent to any already selected point
+            is_adjacent = False
+            for selected in safe_to_remove:
+                if abs(idx - selected) == 1 or abs(idx - selected) == N - 1:  # Handle wraparound
+                    is_adjacent = True
+                    break
+            
+            if not is_adjacent:
+                safe_to_remove.append(idx)
+        
+        if not safe_to_remove:
+            break
+            
+        
+        # Remove points
+        keep_mask = torch.ones(N, dtype=torch.bool, device=current_points.device)
+        remove_indices = torch.tensor(safe_to_remove, device=current_points.device)
+        keep_mask[remove_indices] = False
+        current_points = current_points[keep_mask]
+        
+        
+        to_remove = []
+        for i in range(len(current_points)):
+            p1 = current_points[i]
+            p2 = current_points[(i + 1) % len(current_points)]
+            if torch.norm(p1 - p2) < threshold:
+                to_remove.append((i + 1) % len(current_points))
+
+        iteration += 1
+    
+    return current_points
 
 # def trim(points_n):
 #     # previous trim
@@ -401,6 +450,82 @@ def angle(points_with_mid, i):
 
     return angle_deg.item()
     return angle_deg.item() / (v1.norm() * v2.norm())
+
+
+def remove_optim_based(points_n, cur_sh):
+
+    def cyclic_range(n, x, step):
+        return [(x + i) % n for i in range(-step, step + 1)]
+
+    def get_ids_by_removing(pts, i, win_step):
+        optim_ids = cyclic_range(len(pts), i, win_step)
+        frozen_ids = [idx for idx in range(len(pts)) if idx not in optim_ids]
+        
+        # remove the midpoint
+        optim_ids = [idx for idx in optim_ids if idx != i]
+        optim_pts = [pts[j].detach().requires_grad_(True) for j in optim_ids]
+        frozen_pts = [pts[j].detach() for j in frozen_ids]
+        return optim_pts, frozen_pts, optim_ids, frozen_ids
+
+    def construct_pts(optim_points, frozen_points, optim_indices, frozen_indices):
+        new_pts = []
+        n = len(original_points)
+        for idx in range(n):
+            if idx in optim_indices:
+                pos_in_optim = optim_indices.index(idx)
+                new_pts.append(optim_points[pos_in_optim])
+            elif idx in frozen_indices:
+                pos_in_frozen = frozen_indices.index(idx)
+                new_pts.append(frozen_points[pos_in_frozen])
+        return torch.stack(new_pts)
+
+    win_step = 1
+    original_points = points_n.detach().clone()
+
+    for i in range(len(original_points)):
+        sublogger = Logger()
+        n = len(original_points)
+
+        # ipdb.set_trace()
+        current_points = original_points.clone()
+        optim_points, frozen_points, optim_indices, frozen_indices = get_ids_by_removing(current_points, i, win_step)
+        optimizer = torch.optim.Adam(optim_points, lr=1e-3)
+
+        pts_n = construct_pts(optim_points, frozen_points, optim_indices, frozen_indices)
+        pts_init = pts_n.detach().clone()
+
+        render, shapes, shape_groups = primitive(pts_n)
+        for t in range(cur_sh.epoch):
+            optimizer.zero_grad()
+
+            pts_n = construct_pts(optim_points, frozen_points, optim_indices, frozen_indices)
+
+            img = diff_render(render, pts_n, shapes, shape_groups)
+            img_loss = ImageLoss()(img, sh.raster)
+            smooth_loss = SmoothnessLoss(cur_sh.smooth_loss)(pts_n, points_init=pts_init, is_close=True)
+            band_loss = BandLoss(cur_sh.band_loss)(pts_n, sh.udf)
+            straightness_loss = 0 * StraightnessLoss(cur_sh.straightness_loss)(pts_n, is_close=True)
+
+            loss = img_loss + smooth_loss + band_loss + straightness_loss
+            loss.backward()
+            optimizer.step()
+
+            sublogger.log_loss(t, img_loss.item(), smooth_loss.item(), band_loss.item(),\
+                                straightness_loss.item(), 0, 0,  loss.item())
+
+        
+        optim_indices = [idx - 1 if idx >= i else idx for idx in optim_indices]
+        
+        point_label = [1 if idx in optim_indices else 0 for idx in range(len(pts_n))]
+        points_to_png(
+            pts_n.detach().cpu().numpy(), 
+            sh.sub_exp_path / "remove_points" / f"remove_points_iter_{i:02}.png",
+            background_image=sh.raster,
+            point_values=point_label,
+            binary_color=True
+        )
+        sublogger.plot_losses(sh.sub_path / "remove_points" / f"loss_{i:02}.png")
+
 
 def add_optm_based(points_n, add_points_sh):
     step = getattr(add_points_sh, 'step', 1)  # Default step = 1

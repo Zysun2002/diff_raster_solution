@@ -56,7 +56,7 @@ class Logger:
         self.band_losses.append(band_loss)
         self.losses.append(loss)
 
-    def plot_losses(self, save_path, txt_path):
+    def plot_losses(self, save_path, txt_path=None):
         import matplotlib.pyplot as plt
         plt.figure()
         plt.plot(self.iters, self.img_losses, label='Image Loss')

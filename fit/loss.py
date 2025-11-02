@@ -30,7 +30,6 @@ class SmoothnessLoss:
 
     def __call__(self, points, points_init=None, is_close=None, ext_w=None):
         if self.mode is None:return None
-
         
         if self.mode == "poisson_and_angle":
             return self.forward_poisson_and_angle(points, points_init, is_close)
@@ -284,6 +283,12 @@ class BandLoss:
             raise ValueError(f"Unknown forward mode: {self.mode}")
         # return self.forward_1(points, udf)
 
+    def latex(self):
+        if self.mode == "midpoint":
+            return self.latex_1()
+        else:
+            raise ValueError(f"Unknown latex mode: {self.mode}")
+    
     def forward_0(self, points, udf):
 
         # points = points.clone()
@@ -330,6 +335,8 @@ class ImageLoss:
     def latex(self):
         return fr"L_{{img}} = {self.w} \cdot \frac{1}{{N}} \sum_i (I_i - T_i)^2"
 
+    def vis_fd(self, img, target):
+        return self.w * (img - target).pow(2).mean(dim=-1)
 
 class StraightnessLoss:
     def __init__(self, setting):
@@ -383,7 +390,31 @@ class StraightnessLoss:
     
     def latex(self):
         return fr"L_{{straight}} = {self.w} \cdot \frac{{1}}{{N}} \sum_i \left( -\tanh({self.alpha} (\cos \theta_i + {self.beta})) + 1 \right) \cdot (\cos \theta_i + 1)^{{{self.idx}}}"
-        
+    
+    def vis_fd(self, points, is_close, eps=1e-8):
+        if is_close:
+            points = torch.cat([points, points[:2]], dim=0)
+
+        n = points.shape[0]
+        if n < 3:
+            return torch.tensor(0.0, dtype=torch.float32, device=points.device)
+
+        # vectors: (N-2, 2)
+        ba = points[:-2] - points[1:-1]
+        bc = points[2:]  - points[1:-1]
+
+        # normalize
+        ba = ba / (ba.norm(dim=1, keepdim=True) + eps)
+        bc = bc / (bc.norm(dim=1, keepdim=True) + eps)
+
+        # cosine similarity
+        cos_theta = (ba * bc).sum(dim=1).clamp(-1.0 + 1e-6, 1.0 - 1e-6)
+
+
+        penalties = (-torch.tanh(self.alpha * (cos_theta + self.beta)) + 1) * ((cos_theta+1) ** self.idx)
+        # penalties =  ((cos_theta + 1) ** 2) * 0.1
+
+        return self.w * penalties
 
 def cal_band_indicator_loss(points, udf, eps=1e-6):
     """

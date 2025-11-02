@@ -7,8 +7,116 @@ from fit.loss import ImageLoss, SmoothnessLoss, BandLoss, StraightnessLoss
 import ipdb
 import shutil
 import random
+import json
 
 from fit import sh
+
+def get_loss_summary(sub_path):
+    """Extract loss information from loss_history.json files in subdirectory."""
+    loss_info = {}
+    
+    # Check for loss history files in different training phases
+    for phase in ['pass', 'pass_2', 'warmup']:
+        json_path = sub_path / phase / 'loss_history.json'
+        if json_path.exists():
+            try:
+                with open(json_path, 'r') as f:
+                    data = json.load(f)
+                    
+                if data['iterations']:
+                    # Get last 10 iterations data
+                    num_iters = len(data['iterations'])
+                    last_n_indices = list(range(max(0, num_iters - 10), num_iters))
+                    
+                    loss_info[phase] = {
+                        'iterations': [data['iterations'][i] for i in last_n_indices],
+                        'losses': {k: [v[i] for i in last_n_indices] for k, v in data['losses'].items()},
+                        'differences': {k: [v[i] for i in last_n_indices] for k, v in data['loss_differences'].items()}
+                    }
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                print(f"Warning: Could not parse {json_path}: {e}")
+                continue
+    
+    return loss_info
+
+def format_loss_table(loss_info):
+    """Format loss information as LaTeX table."""
+    if not loss_info:
+        return "No loss data available."
+    
+    # Start LaTeX table with better formatting for last 3 iterations
+    table_latex = r"""
+    \vspace{0.5em}
+    \begin{table}[H]
+    \centering
+    \caption{Loss Values (Last 10 Iterations)}
+    \tiny
+    \begin{tabular}{|l|r|r|r|r|r|r|}
+    \hline
+    \textbf{Phase} & \textbf{Iteration} & \textbf{Image} & \textbf{Smooth} & \textbf{Band} & \textbf{Straightness} & \textbf{Total} \\
+    \hline
+    """
+    
+    # Add data rows for each phase and iteration
+    for phase, data in loss_info.items():
+        losses = data['losses']
+        iterations = data['iterations']
+        
+        for i, iteration in enumerate(iterations):
+            # First row for each phase shows the phase name, subsequent rows are empty
+            phase_name = phase.title() if i == 0 else ""
+            
+            table_latex += f"{phase_name} & {iteration} & "
+            table_latex += f"{losses.get('img_loss', [0])[i]:.4f} & "
+            table_latex += f"{losses.get('smooth_loss', [0])[i]:.4f} & "
+            table_latex += f"{losses.get('band_loss', [0])[i]:.4f} & "
+            table_latex += f"{losses.get('straightness_loss', [0])[i]:.4f} & "
+            table_latex += f"{losses.get('total_loss', [0])[i]:.4f} \\\\\n"
+        
+        # Add a separator line after each phase
+        if len(loss_info) > 1:
+            table_latex += r"\hline" + "\n"
+    
+    table_latex += r"""
+    \end{tabular}
+    \end{table}
+    
+    \begin{table}[H]
+    \centering
+    \caption{Loss Differences (Last 10 Iterations)}
+    \tiny
+    \begin{tabular}{|l|r|r|r|r|r|}
+    \hline
+    \textbf{Phase} & \textbf{Iteration} & \textbf{Image Diff} & \textbf{Smooth Diff} & \textbf{Band Diff} & \textbf{Straightness Diff} \\
+    \hline
+    """
+    
+    # Add difference rows for each phase and iteration
+    for phase, data in loss_info.items():
+        diffs = data['differences']
+        iterations = data['iterations']
+        
+        for i, iteration in enumerate(iterations):
+            # First row for each phase shows the phase name, subsequent rows are empty
+            phase_name = phase.title() if i == 0 else ""
+            
+            table_latex += f"{phase_name} & {iteration} & "
+            table_latex += f"{diffs.get('img_loss_diff', [0])[i]:.6f} & "
+            table_latex += f"{diffs.get('smooth_loss_diff', [0])[i]:.6f} & "
+            table_latex += f"{diffs.get('band_loss_diff', [0])[i]:.6f} & "
+            table_latex += f"{diffs.get('straightness_loss_diff', [0])[i]:.6f} \\\\\n"
+        
+        # Add a separator line after each phase
+        if len(loss_info) > 1:
+            table_latex += r"\hline" + "\n"
+    
+    table_latex += r"""
+    \end{tabular}
+    \end{table}
+    \vspace{0.5em}
+    """
+    
+    return table_latex
 
 def get_max_iter(sub_path):
     import re
@@ -153,22 +261,24 @@ class MyDocument4Column(Document):
             Package('subcaption'),
             Package('float'),
             Package('indentfirst'),
+            Package('array'),
+            Package('booktabs'),
         ])
 
         # Title
         self.append(NoEscape(r"\maketitle"))
 
 
-        # self.append(NoEscape(r'\newpage'))
-        # self.append(NoEscape(r"\section*{Loss Function}"))
-        # self.append(NoEscape(r"\\[1em]"))
-        # self.append(NoEscape(ImageLoss().latex()))
-        # self.append(NoEscape(r"\\[1em]"))
-        # self.append(NoEscape(SmoothnessLoss().latex()))
-        # self.append(NoEscape(r"\\[1em]"))
-        # self.append(NoEscape(BandLoss().latex_1()))
-        # self.append(NoEscape(r"\\[1em]"))
-        # self.append(NoEscape(StraightnessLoss().latex()))
+        self.append(NoEscape(r'\newpage'))
+        self.append(NoEscape(r"\section*{Loss Function}"))
+        self.append(NoEscape(r"\\[1em]"))
+        self.append(NoEscape(ImageLoss().latex()))
+        self.append(NoEscape(r"\\[1em]"))
+        self.append(NoEscape(SmoothnessLoss(sh.pass_sh.smooth_loss).latex()))
+        self.append(NoEscape(r"\\[1em]"))
+        self.append(NoEscape(BandLoss(sh.pass_sh.band_loss).latex()))
+        self.append(NoEscape(r"\\[1em]"))
+        self.append(NoEscape(StraightnessLoss(sh.pass_sh.straightness_loss).latex()))
 
         self.append(NoEscape(r'\newpage'))
 
@@ -188,8 +298,8 @@ class MyDocument4Column(Document):
                 continue
 
             image_keys = [
-                'target', "contour", "contour udf", "init vec", "vec warmup", "vec 1 pass", "vec 2 pass",\
-                "vec", "vec bg"
+                'target', "contour", "contour udf", "init vec",\
+                "vec", "vec bg", "loss"
             ]
 
             image_paths = {
@@ -198,12 +308,10 @@ class MyDocument4Column(Document):
                     'target.png',
                     'contour.png',
                     "sdf.png",
-                    'init_vec.png',
-                    'vec_warmup.png',
-                    'vec_pass.png',
-                    'vec_pass_2.png',
+                    'init.png',
                     'vec.png',
-                    'vec_bg.png'
+                    'vec_bg.png',
+                    'loss_pass.png'
                 ])
             }
 
@@ -229,47 +337,19 @@ class MyDocument4Column(Document):
                     # Break line after 4 subfigures
                     if (i + 1) % 4 == 0:
                         doc.append(NoEscape(r"\par\vspace{1em}"))
-                
+            
+            # Add loss information section
+            loss_info = get_loss_summary(sub_path)
+            if loss_info:
+                doc.append(NoEscape(r"\section*{Loss Summary for " + sub_path.name + "}"))
+                loss_table = format_loss_table(loss_info)
+                doc.append(NoEscape(loss_table))
+            else:
+                doc.append(NoEscape(r"\section*{Loss Summary for " + sub_path.name + "}"))
+                doc.append(NoEscape(r"No loss data available for this experiment."))
+            
                 # next page
             doc.append(NoEscape(r'\newpage'))
-
-            # Add points visualization page
-            add_points_path = sub_path / "add_points"
-            if add_points_path.exists():
-                # Find all add_points_iter_*.png files
-                add_points_files = sorted(add_points_path.glob("add_points_iter_*.png"))
-                
-                if add_points_files:
-                    doc.append(NoEscape(r"\section*{Add Points Iterations}"))
-                    
-                    # Process images in batches of 20 per page
-                    images_per_page = 20
-                    for page_start in range(0, len(add_points_files), images_per_page):
-                        page_files = add_points_files[page_start:page_start + images_per_page]
-                        
-                        with doc.create(Figure(position="H")) as add_fig:
-                            for i, img_file in enumerate(page_files):
-                                # Extract iteration number from filename (add_points_iter_X.png)
-                                try:
-                                    iter_num = img_file.stem.split('_')[-1]  # Gets the X from add_points_iter_X
-                                except:
-                                    iter_num = str(page_start + i)  # Fallback to global index if parsing fails
-                                
-                                with doc.create(
-                                    SubFigure(position="b", width=NoEscape(r"0.24\linewidth"))
-                                ) as subfig:
-                                    subfig.add_image(str(img_file), width=NoEscape(r"\linewidth"))
-                                    subfig.add_caption(f"midpoint {iter_num}")
-
-                                # Break line after 4 subfigures
-                                if (i + 1) % 4 == 0:
-                                    doc.append(NoEscape(r"\par\vspace{1em}"))
-                        
-                        # Add page break if there are more images to show
-                        if page_start + images_per_page < len(add_points_files):
-                            doc.append(NoEscape(r'\newpage'))
-                    
-                    doc.append(NoEscape(r'\newpage'))
 
 
 
@@ -293,7 +373,7 @@ def run_latex(image_path, output_path, delete_vis=False):
 
 if __name__ == "__main__":
 
-    exp_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-22\22-03-14")
+    exp_path = Path(r"E:\Ziyu\workspace\diff_aa_solution\pipeline\exp\10-31\23-10-37")
     output_path = exp_path / "res"
     image_path = exp_path
     run_latex(image_path, output_path, delete_vis=False)

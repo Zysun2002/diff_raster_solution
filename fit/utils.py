@@ -2,6 +2,185 @@ import torch
 import numpy as np
 from .share import sh
 
+from PIL import Image, ImageDraw, ImageFont
+import numpy as np
+import torch
+from pathlib import Path
+
+# def visualize_pts(points, png_name,
+#                   canvas_size=320,
+#                   stroke="blue", stroke_width=2,
+#                   point_radius=2, point_color="red",
+#                   first_point_color="yellow",
+#                   close_path=True,
+#                   background_image=None,
+#                   midpoint_indices=None,
+#                   point_values=None,
+#                   binary_color=False,
+#                   show_indices=True,             # <--- NEW ARG
+#                   index_color="white",           # <--- NEW ARG
+#                   index_font_size=10):           # <--- NEW ARG
+#     """
+#     Draw [N,2] points directly into a raster PNG with optional background image.
+#     Points should be normalized [0,1].
+#     background_image: np.ndarray (H,W,3) in uint8 or float [0,1].
+#     point_values: array-like of numbers to map to colors (blue to red)
+#     """
+
+#     # Convert torch -> numpy
+#     if isinstance(points, torch.Tensor):
+#         points = points.detach().cpu().numpy()
+
+#     pts = np.asarray(points, dtype=float)
+#     if pts.ndim != 2 or pts.shape[1] != 2:
+#         raise ValueError(f"Expected shape [N,2], got {pts.shape}")
+
+#     draw_pts = pts * canvas_size
+#     if close_path:
+#         draw_pts = np.vstack([draw_pts, draw_pts[0]])
+
+#     # Background
+#     if background_image is not None:
+#         bg = np.asarray(background_image)
+#         if bg.shape[2] == 4:
+#             bg = bg[..., :3]
+#         h, w, _ = bg.shape
+#         scale = canvas_size // h
+#         bg_up = np.repeat(np.repeat(bg, scale, axis=0), scale, axis=1)
+#         if bg_up.dtype != np.uint8:
+#             bg_up = (bg_up * 255).astype(np.uint8)
+#         img = Image.fromarray(bg_up)
+#     else:
+#         img = Image.new("RGB", (canvas_size, canvas_size), "black")
+
+#     draw = ImageDraw.Draw(img)
+
+#     # Draw polyline
+#     draw.line([tuple(p) for p in draw_pts], fill=stroke, width=stroke_width)
+
+#     iterable_pts = draw_pts[:-1] if close_path else draw_pts
+
+#     # Value-based coloring
+#     colors = None
+#     if point_values is not None:
+#         point_values = np.array(point_values)
+#         if len(point_values) != len(iterable_pts):
+#             raise ValueError(f"point_values length {len(point_values)} must match points length {len(iterable_pts)}")
+#         min_val, max_val = np.min(point_values), np.max(point_values)
+#         normalized_values = (point_values - min_val) / (max_val - min_val) if max_val > min_val else np.zeros_like(point_values)
+#         colors = []
+#         if binary_color:
+#             for v in point_values:
+#                 colors.append("rgb(0,255,0)" if v else "rgb(255,0,0)")
+#         else:
+#             for val in normalized_values:
+#                 r = int(255 * val)
+#                 b = int(255 * (1 - val))
+#                 colors.append(f"rgb({r},0,{b})")
+
+#     # Font for indices
+#     font = None
+#     if show_indices:
+#         try:
+#             font = ImageFont.truetype("arial.ttf", index_font_size)
+#         except:
+#             font = ImageFont.load_default()
+
+#     # Draw points and optionally indices
+#     for i, (x, y) in enumerate(iterable_pts):
+#         color = (
+#             colors[i] if colors is not None else
+#             first_point_color if i == 0 else
+#             point_color
+#         )
+#         draw.ellipse(
+#             [x - point_radius, y - point_radius, x + point_radius, y + point_radius],
+#             fill=color
+#         )
+
+#         # 🆕 Draw index label
+#         if show_indices:
+#             offset = 4  # small gap between point and label
+#             draw.text((x + point_radius + offset, y - point_radius - offset),
+#                       str(i), fill=index_color, font=font)
+
+#     png_name = Path(png_name)
+#     png_name.parent.mkdir(parents=True, exist_ok=True)
+#     img.save(png_name)
+
+
+def visualize_matrix(matrix, save_path, **kwargs):
+    """Visualize a 2D matrix as a heatmap and save as PNG.
+
+    Args:
+        matrix (np.ndarray or torch.Tensor): 2D array to visualize (n x n or H x W).
+        save_path (str or Path): path to save the PNG file.
+    
+    Keyword Args:
+        cmap (str): colormap name (default 'viridis')
+        vmin, vmax (float): color limits (default: auto)
+        annotate (bool): overlay numeric values (default False)
+        fmt (str): format string for annotations (default '.2f')
+        figsize (tuple): figure size (default (6, 6))
+        dpi (int): output DPI (default 150)
+        colorbar (bool): show colorbar (default True)
+
+    Example:
+        visualize_matrix(mat, 'out/heatmap.png', annotate=True, cmap='plasma')
+    """
+    # We import plotting libraries here so this function can be defined early in the file
+    from pathlib import Path
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    # Extract parameters with defaults
+    cmap = kwargs.get('cmap', 'viridis')
+    # vmin = kwargs.get('vmin', None)
+    vmin = matrix.min()
+    vmax = matrix.max()
+    annotate = kwargs.get('annotate', False)
+    fmt = kwargs.get('fmt', '.2f')
+    figsize = kwargs.get('figsize', (6, 6))
+    dpi = kwargs.get('dpi', 150)
+    colorbar = kwargs.get('colorbar', True)
+
+    # Convert to numpy
+    if isinstance(matrix, torch.Tensor):
+        mat = matrix.detach().cpu().numpy()
+    else:
+        mat = np.asarray(matrix)
+
+    if mat.ndim != 2:
+        raise ValueError(f"visualize_matrix expects a 2D matrix, got shape {mat.shape}")
+
+    # Create output directory
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(mat, cmap=cmap, vmin=vmin, vmax=vmax, aspect='equal', origin='upper')
+
+    if colorbar:
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    if annotate:
+        # annotate each cell with its value
+        nrows, ncols = mat.shape
+        for i in range(nrows):
+            for j in range(ncols):
+                text = format(mat[i, j], fmt)
+                ax.text(j, i, text, ha='center', va='center', color='white', fontsize=6)
+
+    plt.tight_layout()
+    
+    fig.savefig(str(save_path), dpi=dpi)
+    plt.close(fig)
+    return str(save_path)
+
 def grad_to_pt(img_grad, smooth_grad, band_grad, straight_grad, pt_name):
     """
     Save gradients as a .pt file.
@@ -130,6 +309,7 @@ def points_to_png(points, png_name,
     # draw_pts = (pts + 0.5) * canvas_size 
 
     draw_pts = pts * canvas_size
+
     if close_path:
         draw_pts = np.vstack([draw_pts, draw_pts[0]])
 

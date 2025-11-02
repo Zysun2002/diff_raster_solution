@@ -4,6 +4,8 @@ raw/
 .github/
 .vscode/
 test_one_time/
+test2/
+unstable*/
 
 __pycache__/
 auto_restart.log
